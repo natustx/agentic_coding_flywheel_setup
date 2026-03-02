@@ -773,7 +773,7 @@ update_acfs_self() {
             return 0
         fi
 
-        if ! git -C "$ACFS_REPO_ROOT" init 2>/dev/null; then
+        if ! git -C "$ACFS_REPO_ROOT" init -b main 2>/dev/null; then
             log_item "warn" "ACFS self-update" "git init failed at $ACFS_REPO_ROOT"
             return 0
         fi
@@ -794,16 +794,15 @@ update_acfs_self() {
             return 0
         fi
 
-        # Use --mixed reset so local modifications (custom configs, etc.) are
-        # preserved as unstaged changes rather than being destroyed.
-        if ! git -C "$ACFS_REPO_ROOT" reset --mixed origin/main 2>/dev/null; then
-            log_item "warn" "ACFS self-update" "git reset failed during bootstrap"
+        # Use a hard reset via checkout so the working tree is updated to match
+        # origin/main exactly (tarball files are replaced with the real repo state).
+        if ! git -C "$ACFS_REPO_ROOT" checkout -B main --track origin/main 2>/dev/null; then
+            log_item "warn" "ACFS self-update" "git checkout failed during bootstrap"
             return 0
         fi
 
         log_item "ok" "ACFS" "git repo bootstrapped from tarball install"
-        log_to_file "ACFS git repo initialized at $ACFS_REPO_ROOT — run 'acfs update' again for full self-update"
-        return 0
+        log_to_file "ACFS git repo initialized at $ACFS_REPO_ROOT — continuing with self-update"
     fi
 
     # Check if git is available

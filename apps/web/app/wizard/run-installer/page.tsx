@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Sparkles,
@@ -22,7 +22,7 @@ import { TrackedLink } from "@/components/tracked-link";
 import { markStepComplete } from "@/lib/wizardSteps";
 import { useWizardAnalytics } from "@/lib/hooks/useWizardAnalytics";
 import { withCurrentSearch } from "@/lib/utils";
-import { normalizeGitRef, useInstallMode, type InstallMode } from "@/lib/userPreferences";
+import { normalizeGitRef, useACFSRef, useInstallMode, type InstallMode } from "@/lib/userPreferences";
 import {
   SimplerGuide,
   GuideSection,
@@ -81,18 +81,40 @@ const WHAT_IT_INSTALLS = [
 export default function RunInstallerPage() {
   const router = useRouter();
   const [isNavigating, setIsNavigating] = useState(false);
-  const [installMode] = useInstallMode();
+  const [installMode, , installModeLoaded] = useInstallMode();
+  const [pinnedRef, setPinnedRef] = useACFSRef();
+  const [pinEditorOpen, setPinEditorOpen] = useState(false);
+  const usePinnedRef = pinEditorOpen || pinnedRef !== null;
+  const refInput = pinnedRef ?? "main";
+  const safePinnedRef = useMemo(() => normalizeGitRef(refInput), [refInput]);
+  const effectiveInstallMode = installModeLoaded ? installMode : "vibe";
+  const effectiveSourceRef = useMemo(
+    () => (usePinnedRef && safePinnedRef ? safePinnedRef : "main"),
+    [usePinnedRef, safePinnedRef],
+  );
 
-  // Pinned ref state (bd-31ps.8.2)
-  const [usePinnedRef, setUsePinnedRef] = useState(false);
-  const [pinnedRef, setPinnedRef] = useState("main");
+  const handlePinnedRefToggle = useCallback((checked: boolean) => {
+    if (!checked) {
+      setPinEditorOpen(false);
+      setPinnedRef(null);
+      return;
+    }
+    setPinEditorOpen(true);
+    if (!pinnedRef || !pinnedRef.trim()) {
+      setPinnedRef("main");
+    }
+  }, [pinnedRef, setPinnedRef]);
+
+  const handlePinnedRefChange = useCallback((value: string) => {
+    setPinEditorOpen(true);
+    setPinnedRef(value || null);
+  }, [setPinnedRef]);
 
   // Build command dynamically based on pinning options
   const installCommand = useMemo(
-    () => buildInstallCommand(usePinnedRef, pinnedRef, installMode),
-    [usePinnedRef, pinnedRef, installMode]
+    () => buildInstallCommand(usePinnedRef, refInput, effectiveInstallMode),
+    [usePinnedRef, refInput, effectiveInstallMode]
   );
-  const safePinnedRef = useMemo(() => normalizeGitRef(pinnedRef), [pinnedRef]);
 
   // Analytics tracking for this wizard step
   const { markComplete } = useWizardAnalytics({
@@ -173,7 +195,7 @@ export default function RunInstallerPage() {
             <Checkbox
               id="pin-ref"
               checked={usePinnedRef}
-              onCheckedChange={(checked) => setUsePinnedRef(checked === true)}
+              onCheckedChange={(checked) => handlePinnedRefToggle(checked === true)}
               className="mt-0.5"
             />
             <div className="flex-1 space-y-1">
@@ -195,8 +217,8 @@ export default function RunInstallerPage() {
               <div className="flex items-center gap-2">
                 <input
                   type="text"
-                  value={pinnedRef}
-                  onChange={(e) => setPinnedRef(e.target.value)}
+                  value={refInput}
+                  onChange={(e) => handlePinnedRefChange(e.target.value)}
                   placeholder="main, v1.0.0, or commit SHA"
                   className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-mono placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
@@ -209,7 +231,7 @@ export default function RunInstallerPage() {
                   or a full SHA for exact reproducibility.
                 </span>
               </div>
-              {pinnedRef.trim() && !safePinnedRef && (
+              {refInput.trim() && !safePinnedRef && (
                 <p className="text-xs text-[oklch(0.72_0.19_145)]">
                   Invalid ref format. Allowed characters: letters, numbers, <code className="rounded bg-muted px-1 py-0.5">.</code>,
                   <code className="rounded bg-muted px-1 py-0.5">_</code>, <code className="rounded bg-muted px-1 py-0.5">-</code>,
@@ -220,14 +242,20 @@ export default function RunInstallerPage() {
           )}
         </div>
 
-        <CommandCard
-          command={installCommand}
-          description="Agent Flywheel installer one-liner"
-          runLocation="vps"
-          showCheckbox
-          persistKey="run-flywheel-installer"
-          className="border-2 border-primary/20"
-        />
+        {installModeLoaded ? (
+          <CommandCard
+            command={installCommand}
+            description="Agent Flywheel installer one-liner"
+            runLocation="vps"
+            showCheckbox
+            persistKey="run-flywheel-installer"
+            className="border-2 border-primary/20"
+          />
+        ) : (
+          <div className="rounded-lg border-2 border-primary/20 bg-card/30 p-4 text-sm text-muted-foreground">
+            Loading your saved install mode...
+          </div>
+        )}
       </div>
 
       {/* Connection drop reassurance */}
@@ -263,7 +291,7 @@ export default function RunInstallerPage() {
           </p>
           <div className="flex flex-wrap gap-2">
             <TrackedLink
-              href="https://github.com/Dicklesworthstone/agentic_coding_flywheel_setup/blob/main/install.sh"
+              href={`https://github.com/Dicklesworthstone/agentic_coding_flywheel_setup/blob/${effectiveSourceRef}/install.sh`}
               trackingId="install-sh-source"
               className="inline-flex items-center gap-1.5 rounded-lg border border-[oklch(0.75_0.18_195/0.3)] bg-[oklch(0.75_0.18_195/0.1)] px-2.5 py-1.5 text-xs font-medium text-[oklch(0.75_0.18_195)] transition-colors hover:bg-[oklch(0.75_0.18_195/0.2)]"
             >
@@ -367,7 +395,7 @@ export default function RunInstallerPage() {
           Want to see exactly what it does?
         </span>
         <TrackedLink
-          href="https://github.com/Dicklesworthstone/agentic_coding_flywheel_setup/blob/main/install.sh"
+          href={`https://github.com/Dicklesworthstone/agentic_coding_flywheel_setup/blob/${effectiveSourceRef}/install.sh`}
           trackingId="install-sh-source-inline"
           className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
         >

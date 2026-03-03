@@ -103,9 +103,30 @@ ensure_path() {
 
 is_expected_acfs_origin_url() {
     local url="$1"
-    [[ "$url" =~ ^https://github\.com/${ACFS_REPO_OWNER}/${ACFS_REPO_NAME}(\.git)?$ ]] || \
-    [[ "$url" =~ ^git@github\.com:${ACFS_REPO_OWNER}/${ACFS_REPO_NAME}(\.git)?$ ]] || \
-    [[ "$url" =~ ^ssh://git@github\.com/${ACFS_REPO_OWNER}/${ACFS_REPO_NAME}(\.git)?$ ]]
+    local normalized="$url"
+    normalized="${normalized%/}"
+
+    case "$normalized" in
+        https://github.com/*)
+            normalized="${normalized#https://github.com/}"
+            ;;
+        git@github.com:*)
+            normalized="${normalized#git@github.com:}"
+            ;;
+        ssh://git@github.com/*)
+            normalized="${normalized#ssh://git@github.com/}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    normalized="${normalized%.git}"
+    normalized="${normalized,,}"
+
+    local expected="${ACFS_REPO_OWNER}/${ACFS_REPO_NAME}"
+    expected="${expected,,}"
+    [[ "$normalized" == "$expected" ]]
 }
 
 # ============================================================
@@ -821,6 +842,20 @@ update_acfs_self() {
     # Check if git is available
     if ! command -v git &>/dev/null; then
         log_item "skip" "ACFS self-update" "git not found"
+        return 0
+    fi
+
+    # Security: verify we are pulling from the expected ACFS origin.
+    # Do this for normal runs too (not only bootstrap mode) to prevent
+    # accidental or malicious self-update from an unexpected remote.
+    local origin_url
+    origin_url=$(git -C "$ACFS_REPO_ROOT" remote get-url origin 2>/dev/null || true)
+    if [[ -z "$origin_url" ]]; then
+        log_item "warn" "ACFS self-update" "origin remote not configured"
+        return 0
+    fi
+    if ! is_expected_acfs_origin_url "$origin_url"; then
+        log_item "warn" "ACFS self-update" "unexpected origin remote: $origin_url"
         return 0
     fi
 

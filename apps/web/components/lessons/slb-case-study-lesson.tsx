@@ -178,7 +178,7 @@ cc "One more careful review. Any remaining gaps?"
           <CodeBlock
             code={`cc "First read ALL of the AGENTS.md file and
 PLAN_TO_MAKE_SLB.md file super carefully.
-Understand ALL of both! Use ultrathink.
+Understand ALL of both! Use /effort max.
 
 Take ALL of that and elaborate on it more, then create
 a comprehensive and granular set of beads with:

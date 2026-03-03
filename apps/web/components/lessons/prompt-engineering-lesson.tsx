@@ -130,9 +130,10 @@ correct them."`}
 
         <div className="mt-6">
           <TipBox variant="tip">
-            <strong>Claude Code feature:</strong> The word{" "}
-            <strong>ultrathink</strong> is a specific Claude Code directive that
-            tells the system to allocate significantly more thinking tokens. While
+            <strong>Claude Code feature:</strong> The{" "}
+            <strong>/effort</strong> command (<code>/effort low/medium/high/max</code>) controls how much thinking
+            Claude Code allocates to a task. Use <code>/effort max</code> for
+            tasks requiring maximum reasoning depth. While
             it&apos;s a tool-level feature in Claude Code, using intensity words like
             &quot;think deeply&quot; or &quot;reason carefully&quot; can help other
             agents/models allocate more attention to complex tasks as well.
@@ -360,7 +361,7 @@ serves the over-arching goals of the project)."`}
           <CodeBlock
             code={`# The Post-Compaction Refresh
 "Reread AGENTS.md so it's still fresh in your mind.
-Use ultrathink."`}
+Use /effort max."`}
           />
         </div>
 
@@ -453,7 +454,7 @@ to do a super careful, methodical check..."`}
         <div className="mt-6">
           <CodeBlock
             code={`"Reread AGENTS.md so it's still fresh in your mind.
-Use ultrathink.
+Use /effort max.
 
 I want you to sort of randomly explore the code files
 in this project, choosing code files to deeply investigate
@@ -492,7 +493,7 @@ practice guides referenced in the AGENTS.md file."`}
           <QuickRefItem
             pattern="Intensity"
             when="Tasks requiring maximum precision"
-            key_phrases="super carefully, methodical, use ultrathink"
+            key_phrases="super carefully, methodical, use /effort max"
           />
           <QuickRefItem
             pattern="Scope Expansion"
@@ -703,7 +704,7 @@ function PrincipleCard({
 function PatternBreakdown() {
   const patterns = [
     { name: "Anchoring", line: "Reread AGENTS.md..." },
-    { name: "Intensity", line: "Use ultrathink" },
+    { name: "Intensity", line: "Use /effort max" },
     { name: "Fresh Eyes", line: "randomly explore" },
     { name: "Scope (depth)", line: "deeply investigate and understand" },
     { name: "First Principles", line: "trace their functionality" },

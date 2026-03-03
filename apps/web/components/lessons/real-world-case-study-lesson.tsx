@@ -556,7 +556,7 @@ mcp.send_message(
 
 # Step 1: Understand the project
 cc "First read AGENTS.md, read the README, and explore
-the project to understand what we're doing. Use ultrathink."
+the project to understand what we're doing. Use /effort max."
 
 # Step 2: Commit in logical groupings
 cc "Based on your knowledge of the project, commit all
@@ -565,7 +565,7 @@ groupings with super detailed commit messages for each
 and then push.
 
 Take your time to do it right. Don't edit the code at all.
-Don't commit ephemeral files. Use ultrathink."`}
+Don't commit ephemeral files. Use /effort max."`}
             showLineNumbers
           />
         </div>

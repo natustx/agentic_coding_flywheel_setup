@@ -1389,21 +1389,12 @@ detect_environment() {
             done
             if [[ "$_ics_fail" -gt 0 ]]; then
                 local _msg="Internal script integrity check failed: $_ics_fail file(s) modified. Run 'bun run generate' to regenerate checksums."
-                if [[ "${ACFS_STRICT_MODE:-false}" == "true" ]]; then
-                    if declare -f log_error &>/dev/null; then
-                        log_error "$_msg"
-                    else
-                        echo "ERROR: $_msg" >&2
-                    fi
-                    exit 1
-                fi
-                if declare -f log_warn &>/dev/null; then
-                    log_warn "$_msg"
-                    log_warn "Continuing in non-strict mode to avoid blocking installation."
+                if declare -f log_error &>/dev/null; then
+                    log_error "$_msg"
                 else
-                    echo "WARNING: $_msg" >&2
-                    echo "WARNING: Continuing in non-strict mode to avoid blocking installation." >&2
+                    echo "ERROR: $_msg" >&2
                 fi
+                exit 1
             fi
             if [[ "$_ics_fail" -eq 0 ]] && declare -f log_success &>/dev/null; then
                 log_success "Internal script integrity verified (${ACFS_INTERNAL_CHECKSUMS_COUNT:-?} scripts)"
@@ -2019,23 +2010,15 @@ bootstrap_repo_archive() {
     expected_sha="$(grep -E '^ACFS_MANIFEST_SHA256=' "$tmp_dir/scripts/generated/manifest_index.sh" | head -n 1 | cut -d'=' -f2 | tr -d '"[:space:]\r' || true)"
 
     if [[ -z "$expected_sha" ]]; then
-        if [[ "${ACFS_STRICT_MODE:-false}" == "true" ]]; then
-            log_error "Bootstrap manifest index missing ACFS_MANIFEST_SHA256"
-            return 1
-        fi
-        log_warn "Bootstrap manifest index missing ACFS_MANIFEST_SHA256; continuing in non-strict mode"
-        expected_sha="$manifest_sha"
+        log_error "Bootstrap manifest index missing ACFS_MANIFEST_SHA256"
+        return 1
     fi
 
     if [[ "$manifest_sha" != "$expected_sha" ]]; then
-        log_warn "Bootstrap mismatch: generated scripts do not match manifest."
+        log_error "Bootstrap mismatch: generated scripts do not match manifest."
         log_detail "Expected: $expected_sha"
         log_detail "Actual:   $manifest_sha"
-        if [[ "${ACFS_STRICT_MODE:-false}" == "true" ]]; then
-            log_detail "Strict mode enabled; aborting."
-            return 1
-        fi
-        log_warn "Continuing in non-strict mode to avoid blocking installation."
+        return 1
     fi
 
     ACFS_BOOTSTRAP_DIR="$tmp_dir"
@@ -2421,7 +2404,7 @@ acfs_parse_checksums_content() {
             continue
         fi
 
-        if [[ "$line" =~ ^[[:space:]]{2}([a-z_]+):[[:space:]]*$ ]]; then
+        if [[ "$line" =~ ^[[:space:]]{2}([[:alnum:]_-]+):[[:space:]]*$ ]]; then
             current_tool="${BASH_REMATCH[1]}"
             continue
         fi
@@ -2508,7 +2491,7 @@ acfs_load_upstream_checksums() {
     acfs_parse_checksums_content "$content"
 
     local required_tools=(
-        atuin bun bv caam cass claude cm dcg mcp_agent_mail ntm ohmyzsh rust slb ubs uv zoxide
+        atuin bun bv caam cass claude cm dcg gemini_patch mcp_agent_mail ntm ohmyzsh ru rust slb ubs uv zoxide
     )
     local missing_required_tools=false
     local tool
@@ -2900,20 +2883,26 @@ run_ubuntu_upgrade_phase() {
 
     case "$upgrade_stage" in
         initializing|upgrading|awaiting_reboot|resumed|step_complete)
-            log_info "Detected Ubuntu upgrade in progress (stage: $upgrade_stage)"
-            log_info "The systemd resume service should handle this automatically"
+            log_error "Detected Ubuntu upgrade in progress (stage: $upgrade_stage)"
+            log_error "Refusing to continue normal installation during an active upgrade."
             log_info "Monitoring:"
             log_info "  - /var/lib/acfs/check_status.sh"
             log_info "  - journalctl -u acfs-upgrade-resume -f"
             log_info "  - tail -f /var/log/acfs/upgrade_resume.log"
-            return 0
+            return 1
             ;;
         pre_upgrade_reboot)
             # We just rebooted to clear pending package updates
             log_success "Pre-upgrade reboot complete. Continuing with upgrade..."
             # Clear the stage so we proceed normally
             if type -t state_update &>/dev/null; then
-                state_update ".ubuntu_upgrade.current_stage = \"not_started\" | .ubuntu_upgrade.enabled = false" || true
+                if ! state_update ".ubuntu_upgrade.current_stage = \"not_started\" | .ubuntu_upgrade.enabled = false"; then
+                    log_error "Failed to clear pre_upgrade_reboot stage; aborting to prevent stale state."
+                    return 1
+                fi
+            else
+                log_error "State tracking is unavailable; cannot continue upgrade safely."
+                return 1
             fi
             # Set flag to skip redundant warning (user already confirmed before reboot)
             local skip_upgrade_warning=true
@@ -3038,18 +3027,15 @@ run_ubuntu_upgrade_phase() {
                 acfs_source_dir="$ACFS_BOOTSTRAP_DIR"
             fi
 
-            if [[ -n "$acfs_source_dir" ]] && type -t upgrade_setup_infrastructure &>/dev/null; then
-                if ! upgrade_setup_infrastructure "$acfs_source_dir" "$@"; then
-                    log_error "Failed to set up resume infrastructure. Cannot safely reboot."
-                    log_info "Please reboot manually and re-run the installer."
-                    return 1
-                fi
-
-                # upgrade_setup_infrastructure generates the correct continue_install.sh for both:
-                # - pre-upgrade reboot (continue WITH upgrade)
-                # - post-upgrade continuation (skip upgrade)
-            else
-                log_warn "Resume infrastructure not available. After reboot, re-run installer manually."
+            if [[ -z "$acfs_source_dir" ]] || ! type -t upgrade_setup_infrastructure &>/dev/null; then
+                log_error "Resume infrastructure is unavailable. Cannot safely auto-reboot."
+                log_info "Please reboot manually and re-run the installer."
+                return 1
+            fi
+            if ! upgrade_setup_infrastructure "$acfs_source_dir" "$@"; then
+                log_error "Failed to set up resume infrastructure. Cannot safely reboot."
+                log_info "Please reboot manually and re-run the installer."
+                return 1
             fi
 
             # Update MOTD before reboot
@@ -4088,8 +4074,8 @@ install_agents_phase() {
     # Apply Gemini CLI patches (EBADF crash fix, rate-limit retry, quota retry)
     if [[ -x "$TARGET_HOME/.bun/bin/gemini" ]]; then
         log_detail "Applying Gemini CLI patches (EBADF, retry, quota)"
-        try_step "Patching Gemini CLI" run_as_target bash -c \
-            'curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/misc_coding_agent_tips_and_scripts/main/fix-gemini-cli-ebadf-crash.sh | bash' || true
+        try_step "Patching Gemini CLI" acfs_run_verified_upstream_script_as_target "gemini_patch" "bash" || \
+            log_warn "Gemini CLI patch step failed (continuing)"
     fi
 
     log_success "Coding agents installed"

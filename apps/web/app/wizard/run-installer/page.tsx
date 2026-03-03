@@ -22,6 +22,7 @@ import { TrackedLink } from "@/components/tracked-link";
 import { markStepComplete } from "@/lib/wizardSteps";
 import { useWizardAnalytics } from "@/lib/hooks/useWizardAnalytics";
 import { withCurrentSearch } from "@/lib/utils";
+import { normalizeGitRef, useInstallMode, type InstallMode } from "@/lib/userPreferences";
 import {
   SimplerGuide,
   GuideSection,
@@ -36,16 +37,18 @@ import { Jargon } from "@/components/jargon";
 const GITHUB_RAW_BASE = "https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup";
 
 // Build install command based on options
-function buildInstallCommand(usePinnedRef: boolean, pinnedRef: string): string {
-  const ref = usePinnedRef && pinnedRef ? pinnedRef : "main";
+function buildInstallCommand(usePinnedRef: boolean, pinnedRef: string, mode: InstallMode): string {
+  const safePinnedRef = normalizeGitRef(pinnedRef);
+  const shouldPin = usePinnedRef && !!safePinnedRef;
+  const ref = shouldPin ? safePinnedRef : "main";
   const url = `${GITHUB_RAW_BASE}/${ref}/install.sh?$(date +%s)`;
 
-  if (usePinnedRef && pinnedRef) {
+  if (shouldPin && safePinnedRef) {
     // With pinned ref: set ACFS_REF env var so installer uses exact commit
-    return `curl -fsSL "${url}" | ACFS_REF="${pinnedRef}" bash -s -- --yes --mode vibe`;
+    return `curl -fsSL "${url}" | ACFS_REF="${safePinnedRef}" bash -s -- --yes --mode ${mode}`;
   }
   // Default: use main branch (always gets latest)
-  return `curl -fsSL "${url}" | bash -s -- --yes --mode vibe`;
+  return `curl -fsSL "${url}" | bash -s -- --yes --mode ${mode}`;
 }
 
 const WHAT_IT_INSTALLS = [
@@ -78,6 +81,7 @@ const WHAT_IT_INSTALLS = [
 export default function RunInstallerPage() {
   const router = useRouter();
   const [isNavigating, setIsNavigating] = useState(false);
+  const [installMode] = useInstallMode();
 
   // Pinned ref state (bd-31ps.8.2)
   const [usePinnedRef, setUsePinnedRef] = useState(false);
@@ -85,9 +89,10 @@ export default function RunInstallerPage() {
 
   // Build command dynamically based on pinning options
   const installCommand = useMemo(
-    () => buildInstallCommand(usePinnedRef, pinnedRef),
-    [usePinnedRef, pinnedRef]
+    () => buildInstallCommand(usePinnedRef, pinnedRef, installMode),
+    [usePinnedRef, pinnedRef, installMode]
   );
+  const safePinnedRef = useMemo(() => normalizeGitRef(pinnedRef), [pinnedRef]);
 
   // Analytics tracking for this wizard step
   const { markComplete } = useWizardAnalytics({
@@ -204,6 +209,13 @@ export default function RunInstallerPage() {
                   or a full SHA for exact reproducibility.
                 </span>
               </div>
+              {pinnedRef.trim() && !safePinnedRef && (
+                <p className="text-xs text-[oklch(0.72_0.19_145)]">
+                  Invalid ref format. Allowed characters: letters, numbers, <code className="rounded bg-muted px-1 py-0.5">.</code>,
+                  <code className="rounded bg-muted px-1 py-0.5">_</code>, <code className="rounded bg-muted px-1 py-0.5">-</code>,
+                  and <code className="rounded bg-muted px-1 py-0.5">/</code>. Falling back to <code className="rounded bg-muted px-1 py-0.5">main</code>.
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -295,13 +307,13 @@ export default function RunInstallerPage() {
               </p>
             </div>
             <div>
-              <code className="text-[oklch(0.75_0.18_195)]">{usePinnedRef ? `| ACFS_REF="${pinnedRef}" bash` : "| bash"}</code>
+              <code className="text-[oklch(0.75_0.18_195)]">{usePinnedRef && safePinnedRef ? `| ACFS_REF="${safePinnedRef}" bash` : "| bash"}</code>
               <p className="mt-1 font-sans text-muted-foreground">
                 Pipes the downloaded script to bash (the shell) to run it.
-                {usePinnedRef && (
+                {usePinnedRef && safePinnedRef && (
                   <>
                     {" "}The <code className="text-foreground/80">ACFS_REF</code> environment variable
-                    pins the installer to version <code className="text-foreground/80">{pinnedRef}</code>,
+                    pins the installer to version <code className="text-foreground/80">{safePinnedRef}</code>,
                     ensuring reproducible installs across machines.
                   </>
                 )}
@@ -314,9 +326,9 @@ export default function RunInstallerPage() {
               </p>
             </div>
             <div>
-              <code className="text-[oklch(0.75_0.18_195)]">--mode vibe</code>
+              <code className="text-[oklch(0.75_0.18_195)]">--mode {installMode}</code>
               <p className="mt-1 font-sans text-muted-foreground">
-                Tells the installer to use &quot;vibe&quot; mode — installs all the recommended tools for the agentic coding workflow.
+                Tells the installer which mode to use based on your wizard selection.
               </p>
             </div>
           </div>

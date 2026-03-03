@@ -47,6 +47,22 @@ done
 log() { $QUIET || echo "[manifest-drift] $*" >&2; }
 log_error() { echo "[manifest-drift] ERROR: $*" >&2; }
 
+INTERNAL_CHECKSUM_PATHS=()
+INTERNAL_CHECKSUM_VALUES=()
+
+parse_internal_checksums_file() {
+    local file="$1"
+    INTERNAL_CHECKSUM_PATHS=()
+    INTERNAL_CHECKSUM_VALUES=()
+
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*\[([^]]+)\]=\"([0-9A-Fa-f]{64})\"[[:space:]]*$ ]]; then
+            INTERNAL_CHECKSUM_PATHS+=("${BASH_REMATCH[1]}")
+            INTERNAL_CHECKSUM_VALUES+=("${BASH_REMATCH[2],,}")
+        fi
+    done < "$file"
+}
+
 # Verify prerequisites
 MANIFEST="$REPO_ROOT/acfs.manifest.yaml"
 INDEX="$REPO_ROOT/scripts/generated/manifest_index.sh"
@@ -100,13 +116,12 @@ INTERNAL_DRIFT_FILES=()
 INTERNAL_CHECKED=0
 
 if [[ -f "$INTERNAL_CHECKSUMS_FILE" ]]; then
-    # Source the checksums file to get ACFS_INTERNAL_CHECKSUMS associative array
-    # shellcheck source=generated/internal_checksums.sh
-    source "$INTERNAL_CHECKSUMS_FILE"
+    parse_internal_checksums_file "$INTERNAL_CHECKSUMS_FILE"
 
-    if declare -p ACFS_INTERNAL_CHECKSUMS &>/dev/null; then
-        for rel_path in "${!ACFS_INTERNAL_CHECKSUMS[@]}"; do
-            expected="${ACFS_INTERNAL_CHECKSUMS[$rel_path]}"
+    if [[ ${#INTERNAL_CHECKSUM_PATHS[@]} -gt 0 ]]; then
+        for i in "${!INTERNAL_CHECKSUM_PATHS[@]}"; do
+            rel_path="${INTERNAL_CHECKSUM_PATHS[$i]}"
+            expected="${INTERNAL_CHECKSUM_VALUES[$i]}"
             abs_path="$REPO_ROOT/$rel_path"
             if [[ -f "$abs_path" ]]; then
                 actual=$(sha256sum "$abs_path" | awk '{print $1}')
@@ -126,7 +141,7 @@ if [[ -f "$INTERNAL_CHECKSUMS_FILE" ]]; then
         done
         log "Internal checksums: $INTERNAL_CHECKED checked, $INTERNAL_DRIFT_COUNT drifted"
     else
-        log "Warning: ACFS_INTERNAL_CHECKSUMS not defined in $INTERNAL_CHECKSUMS_FILE"
+        log "Warning: No internal checksum entries parsed from $INTERNAL_CHECKSUMS_FILE"
     fi
 else
     log "Internal checksums file not found (pre-migration), skipping"
@@ -204,7 +219,7 @@ fi
 
 # Regenerate
 cd "$REPO_ROOT/packages/manifest"
-if ! bun run generate 2>&1; then
+if ! bun run generate >&2; then
     log_error "bun run generate failed"
     exit 2
 fi
@@ -223,12 +238,11 @@ log "Manifest SHA256 now matches: $ACTUAL_NOW"
 # Verify internal checksums fix (if file was regenerated)
 if [[ -f "$INTERNAL_CHECKSUMS_FILE" ]] && [[ "$INTERNAL_DRIFT_COUNT" -gt 0 ]]; then
     log "Verifying internal script checksums after regeneration..."
-    unset ACFS_INTERNAL_CHECKSUMS
-    # shellcheck source=generated/internal_checksums.sh
-    source "$INTERNAL_CHECKSUMS_FILE"
+    parse_internal_checksums_file "$INTERNAL_CHECKSUMS_FILE"
     post_fix_drift=0
-    for rel_path in "${!ACFS_INTERNAL_CHECKSUMS[@]}"; do
-        expected="${ACFS_INTERNAL_CHECKSUMS[$rel_path]}"
+    for i in "${!INTERNAL_CHECKSUM_PATHS[@]}"; do
+        rel_path="${INTERNAL_CHECKSUM_PATHS[$i]}"
+        expected="${INTERNAL_CHECKSUM_VALUES[$i]}"
         abs_path="$REPO_ROOT/$rel_path"
         if [[ -f "$abs_path" ]]; then
             actual=$(sha256sum "$abs_path" | awk '{print $1}')

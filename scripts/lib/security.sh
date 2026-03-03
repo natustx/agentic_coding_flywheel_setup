@@ -212,6 +212,7 @@ declare -gA KNOWN_INSTALLERS=(
     [rano]="https://raw.githubusercontent.com/Dicklesworthstone/rano/main/install.sh"
     [mdwb]="https://raw.githubusercontent.com/Dicklesworthstone/markdown_web_browser/main/install.sh"
     [s2p]="https://raw.githubusercontent.com/Dicklesworthstone/source_to_prompt_tui/main/install.sh"
+    [gemini_patch]="https://raw.githubusercontent.com/Dicklesworthstone/misc_coding_agent_tips_and_scripts/main/fix-gemini-cli-ebadf-crash.sh"
 )
 
 # ============================================================

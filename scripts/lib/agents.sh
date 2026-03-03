@@ -118,6 +118,33 @@ _agent_create_bun_wrapper() {
     return 0
 }
 
+_agent_apply_verified_gemini_patch() {
+    local patch_tool="gemini_patch"
+    local patch_url="https://raw.githubusercontent.com/Dicklesworthstone/misc_coding_agent_tips_and_scripts/main/fix-gemini-cli-ebadf-crash.sh"
+    local patch_sha=""
+
+    if [[ -f "$AGENTS_SCRIPT_DIR/security.sh" ]]; then
+        # shellcheck source=security.sh
+        source "$AGENTS_SCRIPT_DIR/security.sh"
+        if load_checksums; then
+            patch_url="${KNOWN_INSTALLERS[$patch_tool]:-$patch_url}"
+            patch_sha="$(get_checksum "$patch_tool")"
+        fi
+    fi
+
+    if [[ -z "$patch_sha" ]]; then
+        log_warn "Gemini patch checksum unavailable; skipping patch for safety"
+        return 1
+    fi
+
+    if _agent_run_as_user "source '$AGENTS_SCRIPT_DIR/security.sh'; verify_checksum '$patch_url' '$patch_sha' '$patch_tool' | bash -s --"; then
+        return 0
+    fi
+
+    log_warn "Gemini patch verification failed; skipping patch"
+    return 1
+}
+
 # ============================================================
 # Claude Code Installation
 # ============================================================
@@ -399,7 +426,7 @@ install_gemini_cli() {
             _agent_create_bun_wrapper "$target_home" "gemini"
             # Apply patches (EBADF crash fix, rate-limit retry 3→1000, quota retry)
             log_detail "Applying Gemini CLI patches..."
-            _agent_run_as_user 'curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/misc_coding_agent_tips_and_scripts/main/fix-gemini-cli-ebadf-crash.sh | bash' || true
+            _agent_apply_verified_gemini_patch || true
             # Configure settings for tmux/agent compatibility
             _configure_gemini_settings "$target_home"
             log_success "Gemini CLI installed"
@@ -426,7 +453,7 @@ upgrade_gemini_cli() {
     if _agent_run_as_user "\"$bun_bin\" install -g --trust $GEMINI_PACKAGE"; then
         # Apply patches (EBADF crash fix, rate-limit retry 3→1000, quota retry)
         log_detail "Applying Gemini CLI patches..."
-        _agent_run_as_user 'curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/misc_coding_agent_tips_and_scripts/main/fix-gemini-cli-ebadf-crash.sh | bash' || true
+        _agent_apply_verified_gemini_patch || true
         log_success "Gemini CLI upgraded"
         return 0
     else

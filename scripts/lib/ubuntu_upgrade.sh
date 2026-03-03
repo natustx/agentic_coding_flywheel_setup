@@ -196,7 +196,8 @@ ubuntu_get_next_upgrade() {
 
     # Query available upgrade (check mode, don't actually do it)
     local output
-    output=$(do-release-upgrade -c 2>&1) || true
+    # Force C locale so parsing is stable across non-English environments.
+    output=$(LC_ALL=C LANG=C do-release-upgrade -c 2>&1) || true
 
     # Parse output for version info
     # Output examples:
@@ -651,23 +652,33 @@ ubuntu_do_upgrade() {
             log_detail "Packages requiring reboot: $(tr '\n' ' ' < /var/run/reboot-required.pkgs | sed 's/ $//')"
         fi
 
-        # Set up resume infrastructure so the upgrade continues after reboot
-        if type -t upgrade_setup_infrastructure &>/dev/null; then
-            local acfs_source_dir=""
-            if [[ -n "${SCRIPT_DIR:-}" ]] && [[ -d "$SCRIPT_DIR" ]]; then
-                acfs_source_dir="$SCRIPT_DIR"
-            elif [[ -n "${ACFS_BOOTSTRAP_DIR:-}" ]] && [[ -d "$ACFS_BOOTSTRAP_DIR" ]]; then
-                acfs_source_dir="$ACFS_BOOTSTRAP_DIR"
-            fi
+        # Set up resume infrastructure so the upgrade continues after reboot.
+        # Failing this setup would strand the system mid-upgrade, so fail closed.
+        if ! type -t upgrade_setup_infrastructure &>/dev/null; then
+            log_error "upgrade_setup_infrastructure is unavailable; refusing automatic reboot"
+            return 1
+        fi
 
-            if [[ -n "$acfs_source_dir" ]]; then
-                # Record state so installer knows to resume the upgrade after reboot
-                if type -t state_update &>/dev/null; then
-                    state_update ".ubuntu_upgrade.enabled = true | .ubuntu_upgrade.current_stage = \"pre_upgrade_reboot\"" 2>/dev/null || true
-                fi
+        local acfs_source_dir=""
+        if [[ -n "${SCRIPT_DIR:-}" ]] && [[ -d "$SCRIPT_DIR" ]]; then
+            acfs_source_dir="$SCRIPT_DIR"
+        elif [[ -n "${ACFS_BOOTSTRAP_DIR:-}" ]] && [[ -d "$ACFS_BOOTSTRAP_DIR" ]]; then
+            acfs_source_dir="$ACFS_BOOTSTRAP_DIR"
+        fi
 
-                upgrade_setup_infrastructure "$acfs_source_dir" || true
-            fi
+        if [[ -z "$acfs_source_dir" ]]; then
+            log_error "Cannot determine ACFS source directory for resume setup; refusing automatic reboot"
+            return 1
+        fi
+
+        # Record state so installer knows to resume the upgrade after reboot
+        if type -t state_update &>/dev/null; then
+            state_update ".ubuntu_upgrade.enabled = true | .ubuntu_upgrade.current_stage = \"pre_upgrade_reboot\"" 2>/dev/null || true
+        fi
+
+        if ! upgrade_setup_infrastructure "$acfs_source_dir"; then
+            log_error "Failed to set up upgrade resume infrastructure; refusing automatic reboot"
+            return 1
         fi
 
         if type -t upgrade_update_motd &>/dev/null; then

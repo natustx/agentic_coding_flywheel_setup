@@ -10,6 +10,9 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 ACFS_VERSION="${ACFS_VERSION:-0.1.0}"
+ACFS_REPO_OWNER="${ACFS_REPO_OWNER:-Dicklesworthstone}"
+ACFS_REPO_NAME="${ACFS_REPO_NAME:-agentic_coding_flywheel_setup}"
+ACFS_CHECKSUMS_REF="${ACFS_CHECKSUMS_REF:-main}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ACFS_REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -96,6 +99,13 @@ ensure_path() {
         prefix=$(IFS=:; echo "${to_add[*]}")
         export PATH="${prefix}:$PATH"
     fi
+}
+
+is_expected_acfs_origin_url() {
+    local url="$1"
+    [[ "$url" =~ ^https://github\.com/${ACFS_REPO_OWNER}/${ACFS_REPO_NAME}(\.git)?$ ]] || \
+    [[ "$url" =~ ^git@github\.com:${ACFS_REPO_OWNER}/${ACFS_REPO_NAME}(\.git)?$ ]] || \
+    [[ "$url" =~ ^ssh://git@github\.com/${ACFS_REPO_OWNER}/${ACFS_REPO_NAME}(\.git)?$ ]]
 }
 
 # ============================================================
@@ -608,7 +618,7 @@ sync_acfs_zshrc() {
 # Checksums Refresh (Auto-update from GitHub)
 # ============================================================
 
-CHECKSUMS_URL="https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup/main/checksums.yaml"
+CHECKSUMS_URL="https://raw.githubusercontent.com/${ACFS_REPO_OWNER}/${ACFS_REPO_NAME}/${ACFS_CHECKSUMS_REF}/checksums.yaml"
 CHECKSUMS_LOCAL="${HOME}/.acfs/checksums.yaml"
 
 # Refresh checksums.yaml from GitHub before verifying installers
@@ -702,8 +712,10 @@ update_require_security() {
         return 1
     fi
 
-    # shellcheck source=security.sh
-    # shellcheck disable=SC1091  # runtime relative source
+    if [[ -f "$CHECKSUMS_LOCAL" ]]; then
+        export CHECKSUMS_FILE="$CHECKSUMS_LOCAL"
+    fi
+    # shellcheck disable=SC1090,SC1091  # runtime-resolved absolute path source
     source "$security_script"
     load_checksums || return 1
 
@@ -778,12 +790,13 @@ update_acfs_self() {
             return 0
         fi
 
-        if ! git -C "$ACFS_REPO_ROOT" remote add origin \
-                https://github.com/Dicklesworthstone/agentic_coding_flywheel_setup.git 2>/dev/null; then
+        local expected_origin
+        expected_origin="https://github.com/${ACFS_REPO_OWNER}/${ACFS_REPO_NAME}.git"
+        if ! git -C "$ACFS_REPO_ROOT" remote add origin "$expected_origin" 2>/dev/null; then
             # Remote may already exist from a partial prior run; verify it points to the right URL
             local existing_url
             existing_url=$(git -C "$ACFS_REPO_ROOT" remote get-url origin 2>/dev/null) || true
-            if [[ "$existing_url" != *"agentic_coding_flywheel_setup"* ]]; then
+            if ! is_expected_acfs_origin_url "$existing_url"; then
                 log_item "warn" "ACFS self-update" "unexpected origin remote: $existing_url"
                 return 0
             fi
@@ -1267,8 +1280,7 @@ update_agents() {
             [[ "$QUIET" != "true" ]] && printf "       ${DIM}%s → %s${NC}\n" "${VERSION_BEFORE[gemini]}" "${VERSION_AFTER[gemini]}"
         fi
         # Apply Gemini CLI patches (EBADF crash fix, rate-limit retry, quota retry)
-        log_item "run" "Gemini CLI patches" "EBADF, retry, quota"
-        curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/misc_coding_agent_tips_and_scripts/main/fix-gemini-cli-ebadf-crash.sh | bash 2>&1 | tail -5 || true
+        run_cmd "Gemini CLI patches" update_run_verified_installer gemini_patch
     else
         log_item "skip" "Gemini CLI" "not installed (use --force to install)"
     fi
@@ -1739,7 +1751,8 @@ update_stack() {
 
                         # Wrap the installer: run it, write exit code to status file
                         tmux new-session -d -s "$tmux_session" \
-                            "bash -c '\"$tmp_install\" --dir \"$HOME/mcp_agent_mail\" --yes; echo \$? > \"$status_file\"'"
+                            bash -c '"$1" --dir "$3/mcp_agent_mail" --yes; printf "%s\n" "$?" > "$2"' \
+                            _ "$tmp_install" "$status_file" "$HOME"
 
                         # Wait for the tmux session to finish (up to 300s / 5 min)
                         local waited=0

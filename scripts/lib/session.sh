@@ -274,11 +274,9 @@ readonly OPTIONAL_REDACT_PATTERNS=(
 )
 
 # Sanitize content by applying redaction patterns
-# Usage: sanitize_content "content string"
+# Usage: sanitize_content [file] (or reads from stdin)
 # Returns: sanitized content via stdout
 sanitize_content() {
-    local content="$1"
-    local result="$content"
     local sed_flags="g"
 
     # BSD sed doesn't support case-insensitive replacement flags. Prefer gI when available.
@@ -286,54 +284,27 @@ sanitize_content() {
         sed_flags="gI"
     fi
 
-    # Apply core redaction patterns
+    local sed_script=""
     for pattern in "${REDACT_PATTERNS[@]}"; do
-        # Use sed with extended regex for pattern replacement
-        local next_result
-        if next_result=$(printf '%s' "$result" | sed -E "s/${pattern}/[REDACTED]/${sed_flags}" 2>/dev/null); then
-            result="$next_result"
-        else
-            log_error "Sanitization failed for pattern: $pattern"
-            return 1
-        fi
+        sed_script+="s/${pattern}/[REDACTED]/${sed_flags}; "
     done
 
     # Redact common key/value secrets while preserving surrounding structure.
-    #
-    # Examples:
-    #   password="secret"         -> password="[REDACTED]"
-    #   {"password": "secret"}    -> {"password": "[REDACTED]"}
-    #
-    # We intentionally do this as a separate pass because we need capture groups
-    # in the replacement to keep the key/delimiter/quotes.
-    local kv_pattern
-    # Stop before common trailing delimiters so we don't swallow surrounding syntax like `}`, `,`, `;`, etc.
-    #
-    # Note: To include a literal `]` in a bracket expression portably, it must appear first.
-    # Also exclude `[` so we don't partially match already-redacted values like "[REDACTED]".
-    kv_pattern="([\"']?)(password|secret|api_key|apikey|auth_token|access_token)([\"']?)([[:space:]]*[:=][[:space:]]*)([\"']?)[^][[:space:]\"'}),;[]{8,}([\"']?)"
-    local next_kv_result
-    if next_kv_result=$(printf '%s' "$result" | sed -E "s/${kv_pattern}/\\1\\2\\3\\4\\5[REDACTED]\\6/${sed_flags}" 2>/dev/null); then
-        result="$next_kv_result"
-    else
-        log_error "Sanitization failed for key/value secrets"
-        return 1
-    fi
+    local kv_pattern="([\"']?)(password|secret|api_key|apikey|auth_token|access_token)([\"']?)([[:space:]]*[:=][[:space:]]*)([\"']?)[^][[:space:]\"'}),;[]{8,}([\"']?)"
+    sed_script+="s/${kv_pattern}/\\1\\2\\3\\4\\5[REDACTED]\\6/${sed_flags}; "
 
     # Apply optional patterns if enabled
     if [[ "${ACFS_SANITIZE_OPTIONAL:-0}" == "1" ]]; then
         for pattern in "${OPTIONAL_REDACT_PATTERNS[@]}"; do
-            local next_result
-            if next_result=$(printf '%s' "$result" | sed -E "s/${pattern}/[REDACTED]/${sed_flags}" 2>/dev/null); then
-                result="$next_result"
-            else
-                log_error "Sanitization failed for optional pattern: $pattern"
-                return 1
-            fi
+            sed_script+="s/${pattern}/[REDACTED]/${sed_flags}; "
         done
     fi
 
-    printf '%s\n' "$result"
+    if [[ $# -gt 0 && -f "$1" ]]; then
+        sed -E "$sed_script" "$1"
+    else
+        sed -E "$sed_script"
+    fi
 }
 
 # Sanitize a session export JSON file in place
@@ -695,7 +666,7 @@ export_session() {
             # Text-based sanitization (stream through sed to new temp file)
             local tmp_sanitized
             tmp_sanitized="${tmp_export}.sanitized"
-            if sanitize_content "$(cat "$tmp_export")" > "$tmp_sanitized"; then
+            if sanitize_content "$tmp_export" > "$tmp_sanitized"; then
                 mv -- "$tmp_sanitized" "$tmp_export"
             else
                 rm -f -- "$tmp_sanitized"

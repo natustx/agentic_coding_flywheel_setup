@@ -480,8 +480,10 @@ autofix_version_managers_fix() {
     log_info "[AUTO-FIX] Starting version managers fix (mode=$mode)"
 
     # Fix nvm
-    if ! autofix_nvm_fix "$mode"; then
-        local nvm_result=$?
+    local nvm_result=0
+    autofix_nvm_fix "$mode"
+    nvm_result=$?
+    if [[ $nvm_result -ne 0 ]]; then
         if [[ $nvm_result -eq 2 ]]; then
             log_error "[AUTO-FIX] nvm fix failed critically"
             overall_result=2
@@ -492,8 +494,10 @@ autofix_version_managers_fix() {
     fi
 
     # Fix pyenv
-    if ! autofix_pyenv_fix "$mode"; then
-        local pyenv_result=$?
+    local pyenv_result=0
+    autofix_pyenv_fix "$mode"
+    pyenv_result=$?
+    if [[ $pyenv_result -ne 0 ]]; then
         if [[ $pyenv_result -eq 2 ]]; then
             log_error "[AUTO-FIX] pyenv fix failed critically"
             overall_result=2

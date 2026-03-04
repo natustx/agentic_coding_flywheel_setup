@@ -470,9 +470,12 @@ check_apt_lock() {
         fi
     fi
 
-    # Check for active apt processes
-    # Use -f to match against full command line for safer detection
-    if pgrep -f "(apt|apt-get|dpkg)" >/dev/null 2>&1; then
+    # Check for active package manager processes
+    # Use exact process names to avoid false positives from unrelated commands.
+    if pgrep -x apt >/dev/null 2>&1 || \
+       pgrep -x apt-get >/dev/null 2>&1 || \
+       pgrep -x dpkg >/dev/null 2>&1 || \
+       pgrep -x apt.systemd.daily >/dev/null 2>&1; then
         warn "APT process running" "Another package operation in progress"
         return
     fi

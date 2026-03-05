@@ -3619,7 +3619,7 @@ install_cli_tools() {
     fi
 
     log_detail "Installing required apt packages"
-    try_step "Installing required apt packages" $SUDO apt-get install -y ripgrep tmux fzf direnv jq git-lfs lsof dnsutils netcat-openbsd strace rsync zstd cosign || return 1
+    try_step "Installing required apt packages" $SUDO apt-get install -y ripgrep tmux fzf direnv jq git-lfs lsof dnsutils netcat-openbsd strace rsync zstd || return 1
 
     # GitHub CLI (gh)
     if command_exists gh; then
@@ -3640,7 +3640,7 @@ install_cli_tools() {
 
     # Install optional apt packages - batch install for speed (14→1 apt-get calls)
     log_detail "Installing optional apt packages"
-    local optional_pkgs=(lsd eza bat fd-find btop dust neovim htop tree ncdu httpie entr mtr pv docker.io docker-compose-plugin)
+    local optional_pkgs=(lsd eza bat fd-find btop dust neovim htop tree ncdu httpie entr mtr pv docker.io docker-compose-plugin cosign)
     # First attempt: batch install all at once (fastest path)
     if ! $SUDO apt-get install -y "${optional_pkgs[@]}" >/dev/null 2>&1; then
         # Fallback: some packages failed, install individually to get what we can
